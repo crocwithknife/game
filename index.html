@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Character Platformer Game - Robust++!</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+    <script>
+        // Configure Tailwind CSS
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'glow': '0 0 15px 5px rgba(99, 102, 241, 0.5)',
+                    },
+                    colors: {
+                        'placeholder-bg': '#a0aec0', 'placeholder-text': '#ffffff', 'game-bg': '#f0f9ff',
+                        'ground': '#e5e7eb', 'platform': '#a78bfa', 'platform-moving': '#c4b5fd',
+                        'lava': '#fb923c',
+                        'obstacle': '#ef4444', 'obstacle-short': '#f97316', 'obstacle-flying': '#a3e635',
+                        'projectile': '#fca5a5',
+                        'collectible': '#facc15', 'powerup-shield': '#60a5fa', 'powerup-multiplier': '#f472b6',
+                        'particle-jump': '#cbd5e1', 'particle-double-jump': '#fde047',
+                        'particle-collect': '#fde047', 'particle-powerup-shield': '#93c5fd', 'particle-powerup-multiplier': '#fda4af',
+                        'particle-dash': '#ffffff', 'particle-gameover': '#f87171',
+                        'score-text': '#374151', 'score-text-multi': '#ec4899',
+                        'game-over-text': '#dc2626', 'page-bg': '#e5e7eb', 'text-main': '#1f2937',
+                        'text-light': '#4b5563', 'button-text': '#ffffff',
+                        'bg-layer-1': '#e0f2fe', 'bg-layer-2': '#d1d5db', 'bg-layer-3': '#9ca3af',
+                        'highscore-text': '#6b7280',
+                        'touch-btn-bg': 'rgba(99, 102, 241, 0.7)', // Indigo-500 with transparency
+                        'touch-btn-active-bg': 'rgba(79, 70, 229, 0.9)', // Indigo-700 with more opacity
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Basic styling */
+        body {
+            font-family: 'Inter', sans-serif; background-color: theme('colors.page-bg'); color: theme('colors.text-main');
+            display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 1rem; overflow: hidden;
+            /* Prevent pull-to-refresh and text selection on mobile */
+            overscroll-behavior: none;
+            user-select: none; -webkit-user-select: none; -ms-user-select: none;
+        }
+        .character-card.selected { border-color: #6366f1; box-shadow: theme('boxShadow.glow'); transform: scale(1.05); }
+        .character-card, button { transition: all 0.2s ease-in-out; }
+        .character-card img { display: block; margin-left: auto; margin-right: auto; margin-bottom: 0.5rem; max-width: 100%; height: auto; aspect-ratio: 1 / 1; object-fit: contain; background-color: #e5e7eb; border-radius: 0.25rem; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button:hover:not(:disabled) { filter: brightness(1.1); }
+        .hidden { display: none; }
+
+        /* Canvas style - Make it responsive */
+        #gameCanvas {
+            background-color: theme('colors.game-bg'); border-radius: 0.5rem; border: 1px solid theme('colors.gray.300');
+            display: block;
+            width: 100%; /* Take full width of container */
+            max-width: 550px; /* Maintain max width */
+            height: auto; /* Adjust height automatically */
+            aspect-ratio: 550 / 350; /* Maintain aspect ratio */
+            position: relative;
+            background-image: linear-gradient(theme('colors.bg-layer-3') 1px, transparent 1px), radial-gradient(theme('colors.bg-layer-2') 1px, transparent 1px), linear-gradient(to bottom, theme('colors.bg-layer-1') 1px, transparent 1px);
+            background-size: 10px 10px, 15px 15px, 100% 25px;
+            background-position: 0 0, 0 0, 0 0;
+            background-repeat: repeat, repeat, repeat-x;
+            touch-action: none; /* Prevent default touch actions like scrolling on canvas */
+        }
+        /* Container style */
+        .main-container {
+             background-color: theme('colors.white'); border-radius: 0.5rem; box-shadow: theme('boxShadow.xl');
+             padding: 1rem; /* Reduced padding for smaller screens */
+             text-align: center; width: 100%; max-width: 600px; position: relative; color: theme('colors.text-main');
+        }
+        @media (min-width: 640px) { /* sm breakpoint */
+            .main-container { padding: 1.5rem; }
+        }
+
+        /* Score/UI display adjustments */
+        #score-display { position: absolute; top: 1rem; left: 1rem; font-size: 1.25rem; font-weight: bold; color: theme('colors.score-text'); z-index: 10; transition: color 0.3s ease; }
+        #high-score-display { position: absolute; top: 1.2rem; right: 1rem; font-size: 0.875rem; font-weight: normal; color: theme('colors.highscore-text'); z-index: 10; }
+        #game-over-message { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 1.75rem; font-weight: bold; color: theme('colors.game-over-text'); text-shadow: 1px 1px 2px rgba(0,0,0,0.2); z-index: 20; text-align: center; white-space: pre-wrap; width: 90%; }
+        @media (min-width: 640px) { /* sm breakpoint */
+            #score-display { font-size: 1.5rem; }
+            #high-score-display { font-size: 1rem; }
+            #game-over-message { font-size: 2.25rem; }
+        }
+
+        #selected-character-info { color: theme('colors.text-light'); }
+
+        /* Touch Controls Styling */
+        #touch-controls {
+            position: absolute;
+            bottom: 1rem; /* Position above bottom buttons */
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between; /* Space out left/right and actions */
+            padding: 0 1rem; /* Padding on sides */
+            z-index: 15; /* Above canvas, below game over */
+            pointer-events: none; /* Allow clicks through the container */
+        }
+        .touch-button {
+            background-color: theme('colors.touch-btn-bg');
+            color: theme('colors.button-text');
+            border: none;
+            border-radius: 50%; /* Circular buttons */
+            width: 50px;
+            height: 50px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem; /* Icon size */
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            pointer-events: auto; /* Enable pointer events for buttons */
+            user-select: none; /* Prevent text selection */
+            -webkit-tap-highlight-color: transparent; /* Remove tap highlight */
+        }
+        .touch-button:active {
+            background-color: theme('colors.touch-btn-active-bg');
+            transform: scale(0.95);
+        }
+        #touch-controls > div { /* Containers for left/right and jump/dash */
+            display: flex;
+            gap: 0.75rem; /* Space between buttons */
+        }
+
+    </style>
+</head>
+<body class="bg-page-bg text-text-main">
+
+    <div id="character-select-container" class="main-container">
+        <h1 class="text-3xl sm:text-4xl font-bold mb-6 sm:mb-8 text-indigo-600">Choose Your Character</h1>
+         <div id="character-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
+             <div class="character-card bg-gray-100 hover:bg-gray-200 p-3 sm:p-4 rounded-lg border-2 border-transparent hover:border-indigo-500 cursor-pointer flex flex-col items-center" data-character-id="blocky-adventurer" data-character-name="Blocky Adventurer" data-character-img="https://i.imgur.com/hOAkq4W.png"> <img class="aspect-square object-contain h-auto max-w-full mx-auto mb-2 rounded bg-gray-200" src="https://i.imgur.com/hOAkq4W.png" alt="Blocky Adventurer" onerror="this.onerror=null; this.src='https://placehold.co/200x200/a0aec0/ffffff?text=Img+Error';"> <span class="font-semibold text-sm sm:text-base text-text-main">Blocky Adventurer</span> </div>
+             <div class="character-card bg-gray-100 hover:bg-gray-200 p-3 sm:p-4 rounded-lg border-2 border-transparent hover:border-indigo-500 cursor-pointer flex flex-col items-center" data-character-id="aqua-block" data-character-name="Aqua Block" data-character-img="https://i.imgur.com/mcrXKUb.png"> <img class="aspect-square object-contain h-auto max-w-full mx-auto mb-2 rounded bg-gray-200" src="https://i.imgur.com/mcrXKUb.png" alt="Aqua Block" onerror="this.onerror=null; this.src='https://placehold.co/200x200/a0aec0/ffffff?text=Img+Error';"> <span class="font-semibold text-sm sm:text-base text-text-main">Aqua Block</span> </div>
+             <div class="character-card bg-gray-100 hover:bg-gray-200 p-3 sm:p-4 rounded-lg border-2 border-transparent hover:border-indigo-500 cursor-pointer flex flex-col items-center" data-character-id="crimson-cube" data-character-name="Crimson Cube" data-character-img="https://i.imgur.com/kfBBO7r.png"> <img class="aspect-square object-contain h-auto max-w-full mx-auto mb-2 rounded bg-gray-200" src="https://i.imgur.com/kfBBO7r.png" alt="Crimson Cube" onerror="this.onerror=null; this.src='https://placehold.co/200x200/a0aec0/ffffff?text=Img+Error';"> <span class="font-semibold text-sm sm:text-base text-text-main">Crimson Cube</span>
+             </div>
+        </div>
+        <div id="selected-character-info" class="mb-6 sm:mb-8 h-8 text-base sm:text-lg"> Select a character to begin! </div>
+        <button id="start-game-btn" class="bg-indigo-600 hover:bg-indigo-700 text-button-text font-bold py-2 px-6 sm:py-3 sm:px-8 rounded-lg text-lg sm:text-xl shadow-md" disabled> Start Game </button>
+    </div>
+
+    <div id="game-area-container" class="main-container hidden relative"> <div id="score-display">Score: 0</div>
+         <div id="high-score-display">High Score: 0</div>
+         <div id="game-over-message" class="hidden">Game Over!</div>
+         <h2 id="game-title" class="text-3xl font-bold mb-1 text-indigo-600 invisible">Game Area</h2>
+         <canvas id="gameCanvas" class="mx-auto mb-4"></canvas>
+
+         <div id="touch-controls" class="hidden">
+             <div>
+                 <button id="touch-left" class="touch-button">◀</button>
+                 <button id="touch-right" class="touch-button">▶</button>
+             </div>
+             <div>
+                 <button id="touch-dash" class="touch-button">⚡</button> <button id="touch-jump" class="touch-button">▲</button> </div>
+         </div>
+
+         <div class="flex justify-center space-x-4 mt-4"> <button id="back-to-select-btn" class="bg-gray-500 hover:bg-gray-600 text-button-text font-bold py-2 px-4 sm:px-6 rounded-lg shadow-md text-sm sm:text-base"> Back </button>
+             <button id="restart-btn" class="bg-green-600 hover:bg-green-700 text-button-text font-bold py-2 px-4 sm:px-6 rounded-lg shadow-md hidden text-sm sm:text-base"> Restart </button>
+         </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const characterSelectContainer = document.getElementById('character-select-container');
+        const gameAreaContainer = document.getElementById('game-area-container');
+        const scoreDisplay = document.getElementById('score-display');
+        const highScoreDisplay = document.getElementById('high-score-display');
+        const gameOverMessage = document.getElementById('game-over-message');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startGameBtn = document.getElementById('start-game-btn');
+        const backToSelectBtn = document.getElementById('back-to-select-btn');
+        const restartBtn = document.getElementById('restart-btn');
+        const characterCards = document.querySelectorAll('.character-card');
+        const selectedCharacterInfo = document.getElementById('selected-character-info');
+        // Touch Controls Elements
+        const touchControlsContainer = document.getElementById('touch-controls');
+        const touchLeftBtn = document.getElementById('touch-left');
+        const touchRightBtn = document.getElementById('touch-right');
+        const touchJumpBtn = document.getElementById('touch-jump');
+        const touchDashBtn = document.getElementById('touch-dash');
+
+
+        // --- Game Constants ---
+        const BASE_CANVAS_WIDTH = 550; // Original logical width
+        const BASE_CANVAS_HEIGHT = 350; // Original logical height
+        let scaleFactor = 1; // Scale factor for responsive drawing
+
+        // Adjust constants based on BASE size, GROUND_Y will be dynamic
+        let GROUND_Y = BASE_CANVAS_HEIGHT - 25; // Initial value, will be updated on resize
+        const LAVA_HEIGHT = 10;
+        const PLAYER_WIDTH = 40; const PLAYER_HEIGHT = 40; const PLAYER_SPEED = 4;
+        const GRAVITY = 0.5; const JUMP_STRENGTH = 10; const MAX_JUMPS = 2;
+        const DASH_KEY = 'Shift'; const DASH_DURATION_FRAMES = 10; const DASH_SPEED_MULTIPLIER = 3; const DASH_COOLDOWN_FRAMES = 60; const DASH_INVINCIBILITY = true;
+        const OBSTACLE_WIDTH = 25; const OBSTACLE_HEIGHT_TALL = 40; const OBSTACLE_HEIGHT_SHORT = 20; const OBSTACLE_FLYING_SIZE = 30;
+        const BASE_OBSTACLE_SPEED = 3; const MAX_OBSTACLE_SPEED = 7; const BASE_SPAWN_INTERVAL_FRAMES = 100; const MIN_SPAWN_INTERVAL_FRAMES = 45;
+        const SCORE_SPEED_INCREASE_THRESHOLD = 300; const SCORE_INTERVAL_DECREASE_THRESHOLD = 600;
+        const COLLECTIBLE_SIZE = 15; const COLLECTIBLE_VALUE = 50; const COLLECTIBLE_SPAWN_INTERVAL_FRAMES = 150;
+        const POWERUP_SIZE = 20; const POWERUP_SPAWN_INTERVAL_FRAMES = 650;
+        const POWERUP_SHIELD_DURATION_FRAMES = 300; const MULTIPLIER_DURATION_FRAMES = 400; const SCORE_MULTIPLIER_VALUE = 3;
+        const EMOJI_OBSTACLE_TALL = '🧱'; const EMOJI_OBSTACLE_SHORT = '🪨'; const EMOJI_OBSTACLE_FLYING = '👻'; const EMOJI_COLLECTIBLE = '⭐'; const EMOJI_POWERUP_SHIELD = '🛡️'; const EMOJI_POWERUP_MULTIPLIER = '✨';
+        const STORAGE_KEY = 'blockyGameHighScore';
+        const PARTICLE_GRAVITY = 0.05; const PARTICLE_MIN_LIFE = 15; const PARTICLE_MAX_LIFE = 35; const MAX_PARTICLES = 200; // Particle pool limit
+        const SCREEN_SHAKE_DURATION = 15; const SCREEN_SHAKE_MAGNITUDE = 4;
+        const PLATFORM_HEIGHT = 15; const PLATFORM_MIN_WIDTH = 80; const PLATFORM_MAX_WIDTH = 150; const PLATFORM_SPAWN_CHANCE = 0.2;
+        const PLATFORM_MOVE_SPEED = 0.8;
+        const COLLISION_X_BUFFER = 100;
+        const PROJECTILE_WIDTH = 5; const PROJECTILE_HEIGHT = 10; const PROJECTILE_SPEED = 3; const FLYING_SHOOT_COOLDOWN = 120;
+        const PATTERN_SPAWN_CHANCE = 0.1;
+        const PATTERN_MIN_INTERVAL_FRAMES = 180;
+
+        // --- Game State ---
+        let selectedCharacter = null; let player = {}; let keys = {}; let obstacles = []; let collectibles = []; let powerups = []; let particles = []; let particlePool = []; let platforms = []; let projectiles = [];
+        let score = 0; let highScore = 0;
+        let isGameOver = false; let animationFrameId = null;
+        let currentObstacleSpeed = BASE_OBSTACLE_SPEED; let currentSpawnIntervalFrames = BASE_SPAWN_INTERVAL_FRAMES;
+        let timeSinceLastObstacleSpawn = 0; let timeSinceLastCollectibleSpawn = 0; let timeSinceLastPowerupSpawn = 0; let timeSinceLastPlatform = 0; let timeSinceLastPattern = PATTERN_MIN_INTERVAL_FRAMES;
+        let backgroundOffset1 = 0; let backgroundOffset2 = 0; let backgroundOffset3 = 0;
+        let screenShakeActive = false; let screenShakeTimer = 0;
+        let resizeTimeout; // For debouncing resize
+
+        // --- Audio State & Synths ---
+        let audioInitialized = false; let jumpSynth = null; let collectSynth = null; let gameOverSynth = null; let powerupShieldSynth = null; let powerupMultiplierSynth = null; let projectileShootSynth = null; let dashSynth = null; let bgMusicSynth = null; let musicLoop = null;
+        if (typeof Tone !== 'undefined') { try { /* ... synth definitions ... */ jumpSynth = new Tone.Synth({ oscillator: { type: "sine" }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.05, release: 0.2 } }).toDestination(); collectSynth = new Tone.Synth({ oscillator: { type: "triangle" }, envelope: { attack: 0.005, decay: 0.05, sustain: 0.01, release: 0.1 } }).toDestination(); gameOverSynth = new Tone.Synth({ oscillator: { type: "square" }, envelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.5 } }).toDestination(); powerupShieldSynth = new Tone.Synth({ oscillator: { type: "sawtooth" }, envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.2 } }).toDestination(); powerupMultiplierSynth = new Tone.Synth({ oscillator: { type: "pulse", width: 0.3 }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.1 } }).toDestination(); projectileShootSynth = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.05 }, volume: -15 }).toDestination(); dashSynth = new Tone.Synth({ oscillator: { type: 'triangle8' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0, release: 0.1 }, volume: -10 }).toDestination(); bgMusicSynth = new Tone.MonoSynth({ oscillator: { type: "sine" }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.1, release: 0.5 }, volume: -18 }).toDestination(); const musicSequence = ["C3", ["E3", "G3"], "C4", ["E3", "G3"]]; let musicStep = 0; musicLoop = new Tone.Loop(time => { let note = musicSequence[musicStep % musicSequence.length]; bgMusicSynth.triggerAttackRelease(note, "8n", time); musicStep++; }, "4n"); } catch (e) { console.error("Error creating Tone.js synths:", e); } } else { console.warn("Tone.js not loaded, sound effects disabled."); }
+
+        // --- Load High Score ---
+        try { const storedHighScore = localStorage.getItem(STORAGE_KEY); if (storedHighScore) { highScore = parseInt(storedHighScore, 10) || 0; } } catch (e) { console.error("Could not load high score from localStorage:", e); highScore = 0; }
+
+        // --- Character Selection Logic ---
+        characterCards.forEach(card => { card.addEventListener('click', () => { characterCards.forEach(c => c.classList.remove('selected')); card.classList.add('selected'); selectedCharacter = { id: card.dataset.characterId, name: card.dataset.characterName, imgSrc: card.dataset.characterImg }; selectedCharacterInfo.textContent = `Selected: ${selectedCharacter.name}`; startGameBtn.disabled = false; }); });
+
+        // --- Canvas Resizing Logic ---
+        function resizeCanvas() {
+            const containerWidth = gameAreaContainer.clientWidth - 32; // Account for padding
+            const targetWidth = Math.min(containerWidth, BASE_CANVAS_WIDTH); // Use smaller of container or base width
+            scaleFactor = targetWidth / BASE_CANVAS_WIDTH;
+
+            canvas.width = targetWidth;
+            // Calculate height based on aspect ratio
+            canvas.height = (BASE_CANVAS_HEIGHT / BASE_CANVAS_WIDTH) * targetWidth;
+
+            // Update GROUND_Y based on new canvas height
+            GROUND_Y = canvas.height - (25 * scaleFactor); // Scale ground thickness too
+
+            // Optional: Redraw immediately if game is running
+            // if (!isGameOver && animationFrameId) {
+            //    redrawStaticElements(); // A function to redraw background, score etc.
+            // }
+             console.log(`Canvas resized: ${canvas.width}x${canvas.height}, Scale: ${scaleFactor}, GroundY: ${GROUND_Y}`);
+        }
+
+        // Debounced resize handler
+        function handleResize() {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(resizeCanvas, 150); // Adjust delay as needed
+        }
+
+        // --- Screen Transition Logic ---
+        startGameBtn.addEventListener('click', async () => {
+            if (selectedCharacter) {
+                characterSelectContainer.classList.add('hidden');
+                gameAreaContainer.classList.remove('hidden');
+                touchControlsContainer.classList.remove('hidden'); // Show touch controls
+                resizeCanvas(); // Initial resize before starting
+                initGame();
+
+                // Audio Context Handling (already good)
+                if (typeof Tone !== 'undefined' && !audioInitialized && Tone.context.state !== 'running') {
+                    try {
+                        await Tone.start();
+                        audioInitialized = true;
+                        console.log('Audio context started successfully.');
+                        if (musicLoop && Tone.Transport.state !== 'started') {
+                            Tone.Transport.start(); musicLoop.start(0); console.log('Background music started.');
+                        }
+                    } catch (e) { console.error("Error starting audio context:", e); }
+                } else if (audioInitialized && musicLoop && Tone.Transport.state !== 'started') {
+                    Tone.Transport.start(); musicLoop.start(0); console.log('Background music started (context was already running).');
+                }
+            }
+        });
+
+        function stopMusic() { if (musicLoop && Tone.Transport.state === 'started') { musicLoop.stop(0); Tone.Transport.stop(); Tone.Transport.cancel(); musicStep = 0; console.log('Background music stopped.'); } }
+
+        function goBackToSelect() {
+            stopMusic();
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+            // Remove event listeners
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+            window.removeEventListener('resize', handleResize);
+            removeTouchListeners(); // Remove touch listeners
+
+            gameAreaContainer.classList.add('hidden');
+            touchControlsContainer.classList.add('hidden'); // Hide touch controls
+            characterSelectContainer.classList.remove('hidden');
+            characterCards.forEach(c => c.classList.remove('selected'));
+            startGameBtn.disabled = true;
+            selectedCharacterInfo.textContent = 'Select a character to begin!';
+            selectedCharacter = null;
+            restartBtn.classList.add('hidden');
+            gameOverMessage.classList.add('hidden');
+        }
+        backToSelectBtn.addEventListener('click', goBackToSelect);
+
+        restartBtn.addEventListener('click', () => {
+            stopMusic();
+            initGame(); // This will re-add listeners via startGameSystems
+            if (audioInitialized && musicLoop && Tone.Transport.state !== 'started') {
+                Tone.Transport.start(); musicLoop.start(0); console.log('Background music restarted.');
+            }
+        });
+
+        // --- Game Initialization ---
+        function initGame() {
+             isGameOver = false; score = 0; obstacles = []; collectibles = []; powerups = []; particles = []; platforms = []; projectiles = []; keys = {};
+             currentObstacleSpeed = BASE_OBSTACLE_SPEED; currentSpawnIntervalFrames = BASE_SPAWN_INTERVAL_FRAMES;
+             timeSinceLastObstacleSpawn = 0; timeSinceLastCollectibleSpawn = 0; timeSinceLastPowerupSpawn = 0; timeSinceLastPlatform = PATTERN_MIN_INTERVAL_FRAMES;
+             timeSinceLastPattern = PATTERN_MIN_INTERVAL_FRAMES;
+             backgroundOffset1 = 0; backgroundOffset2 = 0; backgroundOffset3 = 0;
+             screenShakeActive = false; screenShakeTimer = 0;
+
+             // Initialize player position relative to the potentially resized GROUND_Y
+             player = {
+                 x: 50 * scaleFactor, // Scale initial X? Maybe keep absolute
+                 y: GROUND_Y - PLAYER_HEIGHT - (150 * scaleFactor), // Initial jump height scaled
+                 width: PLAYER_WIDTH * scaleFactor, height: PLAYER_HEIGHT * scaleFactor, // Scale player size
+                 speed: PLAYER_SPEED * scaleFactor, // Scale speed? Maybe keep absolute
+                 dx: 0, dy: 0, gravity: GRAVITY * scaleFactor, // Scale gravity
+                 jumpStrength: JUMP_STRENGTH * scaleFactor, // Scale jump strength
+                 isOnGround: false, wasOnGround: false, jumpsRemaining: MAX_JUMPS, image: null, isPlaceholder: false, isInvincible: false, invincibilityTimer: 0, scoreMultiplier: 1, scoreMultiplierTimer: 0, landedOnPlatform: null, isDashing: false, dashTimer: 0, dashCooldownTimer: 0, dashDirection: 1
+             };
+
+             scoreDisplay.textContent = `Score: 0`; scoreDisplay.classList.remove('multiplier-active');
+             highScoreDisplay.textContent = `High Score: ${highScore}`;
+             gameOverMessage.classList.add('hidden'); restartBtn.classList.add('hidden'); backToSelectBtn.disabled = false;
+             canvas.style.backgroundPositionX = '0px, 0px, 0px';
+             particlePool.forEach(p => p.active = false); particles = [];
+             if (animationFrameId) { cancelAnimationFrame(animationFrameId); } animationFrameId = null;
+
+             if (selectedCharacter?.imgSrc && selectedCharacter.imgSrc !== 'placeholder') {
+                 player.image = new Image();
+                 player.image.onload = () => { startGameSystems(); };
+                 player.image.onerror = (e) => { console.error("INITGAME: Failed image load:", selectedCharacter.imgSrc, e); player.isPlaceholder = true; startGameSystems(); }
+                 player.image.src = selectedCharacter.imgSrc;
+             } else {
+                 player.isPlaceholder = true;
+                 startGameSystems();
+             }
+        }
+
+        function startGameSystems() {
+             // Remove existing listeners first to prevent duplicates on restart
+             window.removeEventListener('keydown', handleKeyDown); window.removeEventListener('keyup', handleKeyUp);
+             window.removeEventListener('resize', handleResize);
+             removeTouchListeners();
+
+             // Add listeners
+             window.addEventListener('keydown', handleKeyDown); window.addEventListener('keyup', handleKeyUp);
+             window.addEventListener('resize', handleResize);
+             addTouchListeners(); // Add touch listeners
+
+             startGameLoop();
+        }
+
+        function startGameLoop() {
+             if (isGameOver) { return; }
+             // Ensure loop doesn't restart if already running
+             if (!animationFrameId) {
+                 // score = 0; // Score reset should be in initGame
+                 animationFrameId = requestAnimationFrame(gameLoop);
+             }
+             // else { console.warn("startGameLoop: Loop already running?"); } // Less noisy
+        }
+
+         // --- Touch Control Logic ---
+         function handleTouchStart(e) {
+             e.preventDefault(); // Prevent default actions like scrolling/zoom
+             const targetId = e.target.id;
+             switch (targetId) {
+                 case 'touch-left': keys['ArrowLeft'] = true; break;
+                 case 'touch-right': keys['ArrowRight'] = true; break;
+                 case 'touch-jump':
+                     // Simulate spacebar press for jump logic in handleKeyDown
+                     handleKeyDown({ key: ' ', preventDefault: () => {} });
+                     break;
+                 case 'touch-dash':
+                      // Simulate shift press for dash logic in handleKeyDown
+                     handleKeyDown({ key: DASH_KEY, preventDefault: () => {} });
+                     break;
+             }
+         }
+
+         function handleTouchEnd(e) {
+             e.preventDefault();
+             // Find the button corresponding to any ended touch point within the controls
+             for (let touch of e.changedTouches) {
+                 const element = document.elementFromPoint(touch.clientX, touch.clientY);
+                 if (element) {
+                     const targetId = element.id;
+                      switch (targetId) {
+                         case 'touch-left': keys['ArrowLeft'] = false; break;
+                         case 'touch-right': keys['ArrowRight'] = false; break;
+                         // Jump and Dash are momentary, no key up needed directly
+                     }
+                 }
+             }
+             // Also handle the specific target if needed, though elementFromPoint is often better for multi-touch
+              const targetId = e.target.id;
+              switch (targetId) {
+                  case 'touch-left': keys['ArrowLeft'] = false; break;
+                  case 'touch-right': keys['ArrowRight'] = false; break;
+              }
+         }
+
+         function addTouchListeners() {
+             touchLeftBtn.addEventListener('touchstart', handleTouchStart, { passive: false });
+             touchLeftBtn.addEventListener('touchend', handleTouchEnd, { passive: false });
+             touchRightBtn.addEventListener('touchstart', handleTouchStart, { passive: false });
+             touchRightBtn.addEventListener('touchend', handleTouchEnd, { passive: false });
+             touchJumpBtn.addEventListener('touchstart', handleTouchStart, { passive: false });
+             // No touchend needed for jump/dash as they are momentary presses
+             touchDashBtn.addEventListener('touchstart', handleTouchStart, { passive: false });
+         }
+
+         function removeTouchListeners() {
+             touchLeftBtn.removeEventListener('touchstart', handleTouchStart);
+             touchLeftBtn.removeEventListener('touchend', handleTouchEnd);
+             touchRightBtn.removeEventListener('touchstart', handleTouchStart);
+             touchRightBtn.removeEventListener('touchend', handleTouchEnd);
+             touchJumpBtn.removeEventListener('touchstart', handleTouchStart);
+             touchDashBtn.removeEventListener('touchstart', handleTouchStart);
+         }
+
+        // --- Particle Handling (Using Object Pool) ---
+        function spawnParticles(count, x, y, color, speedRange, lifeRange, initialVyBias = 0, initialVxBias = 0) {
+            let spawnedCount = 0;
+            for (let i = 0; i < particlePool.length && spawnedCount < count; i++) { /* ... pool reuse logic ... */
+                 if (!particlePool[i].active) { const p = particlePool[i]; p.x = x; p.y = y; const angle = Math.random() * Math.PI * 2; const speed = Math.random() * speedRange + 0.5; p.vx = Math.cos(angle) * speed + initialVxBias; p.vy = Math.sin(angle) * speed + initialVyBias; p.size = (Math.random() * 2.5 + 1.5) * scaleFactor; p.color = color; p.life = Math.random() * (lifeRange[1] - lifeRange[0]) + lifeRange[0]; p.initialLife = lifeRange[1]; p.active = true; if (!particles.includes(p)) { particles.push(p); } spawnedCount++; } }
+            for (let i = spawnedCount; i < count && particlePool.length < MAX_PARTICLES; i++) { /* ... new particle creation ... */
+                 const angle = Math.random() * Math.PI * 2; const speed = Math.random() * speedRange + 0.5; const p = { x: x, y: y, vx: Math.cos(angle) * speed + initialVxBias, vy: Math.sin(angle) * speed + initialVyBias, size: (Math.random() * 2.5 + 1.5) * scaleFactor, color: color, life: Math.random() * (lifeRange[1] - lifeRange[0]) + lifeRange[0], initialLife: lifeRange[1], active: true }; particles.push(p); particlePool.push(p); }
+        }
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.vy += PARTICLE_GRAVITY * scaleFactor; // Scale gravity effect
+                p.life--;
+                if (p.life <= 0 || p.size < 0.5) { p.active = false; particles.splice(i, 1); }
+            }
+        }
+        function drawParticles() {
+            for (let i = 0; i < particles.length; i++) { const p = particles[i]; ctx.globalAlpha = Math.max(0, p.life / p.initialLife); ctx.fillStyle = p.color; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); } ctx.globalAlpha = 1.0;
+        }
+
+        // --- Platform Handling ---
+        // Spawn position/size needs scaling? Keep logical size, scale drawing.
+        function spawnPlatform(x, y, width, isMoving = false) {
+            const platformWidth = (width || (Math.random() * (PLATFORM_MAX_WIDTH - PLATFORM_MIN_WIDTH) + PLATFORM_MIN_WIDTH));
+            const clampedY = Math.max(PLAYER_HEIGHT * 2, y); // Use base PLAYER_HEIGHT for logical clamp
+            let pData = {
+                x: x, // Logical X
+                y: clampedY, // Logical Y
+                width: platformWidth, // Logical width
+                height: PLATFORM_HEIGHT, // Logical height
+                type: 'static', vx: 0
+            };
+            if (isMoving) {
+                pData.type = 'moving-x';
+                pData.vx = (Math.random() < 0.5 ? 1 : -1) * PLATFORM_MOVE_SPEED; // Keep speed logical?
+                const mDist = platformWidth * 0.5 + Math.random() * 50;
+                pData.moveRange = [x - mDist, x + mDist];
+                pData.initialX = x;
+            }
+            platforms.push(pData);
+        }
+        function updatePlatforms() {
+             for (let i = platforms.length - 1; i >= 0; i--) {
+                 const p = platforms[i];
+                 const scaledSpeed = currentObstacleSpeed * scaleFactor; // Scale speed for movement
+                 p.x -= scaledSpeed; // Move based on scaled speed
+
+                 if (p.type === 'moving-x') {
+                     const scaledPlatformVx = p.vx * scaleFactor; // Scale platform's own speed
+                     p.x += scaledPlatformVx;
+                     // Update moveRange based on scaled speed as well
+                     p.moveRange[0] -= scaledSpeed;
+                     p.moveRange[1] -= scaledSpeed;
+
+                     // Collision check with scaled range
+                      if (p.x <= p.moveRange[0] || p.x + p.width >= p.moveRange[1]) { // Use logical width for range check?
+                          p.vx *= -1; // Reverse logical speed
+                          // Clamp position within the logical range
+                          p.x = Math.max(p.moveRange[0], Math.min(p.x, p.moveRange[1]));
+                      }
+                 }
+                 // Remove if off-screen (use logical width)
+                 if (p.x + p.width < 0) {
+                     platforms.splice(i, 1);
+                 }
+             }
+         }
+        function drawPlatforms() {
+            platforms.forEach(p => {
+                ctx.fillStyle = p.type === 'moving-x' ? tailwind.config.theme.extend.colors['platform-moving'] : tailwind.config.theme.extend.colors.platform;
+                // Draw using logical position and scaled size
+                ctx.fillRect(p.x, p.y, p.width, p.height);
+            });
+        }
+
+
+        // --- Obstacle Handling ---
+        // Keep logical sizes, scale drawing
+        function spawnObstacle(x = canvas.width, typeOverride = null, yPosOverride = null) {
+             if (isGameOver) return;
+             let type = typeOverride; let yPos = yPosOverride; let emoji, h, w; let shootTimer = 0;
+             if (!type) { const r = Math.random(); if (r < 0.4) { type = 'tall'; } else if (r < 0.75) { type = 'short'; } else { type = 'flying'; } }
+
+             const logicalGroundY = BASE_CANVAS_HEIGHT - 25; // Use base for spawning logic
+
+             if (type === 'tall') { h = OBSTACLE_HEIGHT_TALL; w = OBSTACLE_WIDTH; yPos = yPosOverride ?? logicalGroundY - h; emoji = EMOJI_OBSTACLE_TALL; }
+             else if (type === 'short') { h = OBSTACLE_HEIGHT_SHORT; w = OBSTACLE_WIDTH; yPos = yPosOverride ?? logicalGroundY - h; emoji = EMOJI_OBSTACLE_SHORT; }
+             else if (type === 'flying') { h = OBSTACLE_FLYING_SIZE; w = OBSTACLE_FLYING_SIZE; yPos = yPosOverride ?? (BASE_CANVAS_HEIGHT * 0.5 - Math.random() * (BASE_CANVAS_HEIGHT * 0.4)); yPos = Math.max(PLAYER_HEIGHT, Math.min(yPos, logicalGroundY - PLAYER_HEIGHT * 2)); emoji = EMOJI_OBSTACLE_FLYING; shootTimer = FLYING_SHOOT_COOLDOWN / 2 + Math.random() * FLYING_SHOOT_COOLDOWN / 2; }
+             else { return; }
+             // Store logical position and dimensions
+             obstacles.push({ x: x / scaleFactor, y: yPos, width: w, height: h, speed: currentObstacleSpeed, emoji: emoji, type: type, shootTimer: shootTimer });
+         }
+         function updateObstacles() {
+             for (let i = obstacles.length - 1; i >= 0; i--) {
+                 const o = obstacles[i];
+                 const scaledSpeed = o.speed * scaleFactor; // Scale speed for movement
+                 o.x -= scaledSpeed; // Update logical position based on scaled speed
+
+                 if (o.type === 'flying' && !isGameOver) {
+                     o.shootTimer--;
+                     // Check if logically on screen before shooting
+                     if (o.shootTimer <= 0 && o.x * scaleFactor < canvas.width && (o.x + o.width) * scaleFactor > 0) {
+                         spawnProjectile((o.x + o.width / 2) * scaleFactor, (o.y + o.height) * scaleFactor); // Spawn at scaled position
+                         o.shootTimer = FLYING_SHOOT_COOLDOWN;
+                         if (projectileShootSynth && audioInitialized) { try { projectileShootSynth.triggerAttackRelease("4n"); } catch(err){ console.error("Shoot sound error:", err); } }
+                     }
+                 }
+                 // Remove if logically off screen
+                 if (o.x + o.width < 0) {
+                     obstacles.splice(i, 1);
+                 }
+             }
+         }
+        function drawObstacles() {
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            obstacles.forEach(o => {
+                const fs = o.height * 0.9 * scaleFactor; // Scale font size
+                ctx.font = `${fs}px Arial`;
+                // Draw at scaled position
+                const dX = (o.x + o.width / 2) * scaleFactor;
+                const dY = (o.y + o.height / 2) * scaleFactor;
+                ctx.fillText(o.emoji, dX, dY);
+            });
+        }
+
+        // --- Projectile Handling ---
+         function spawnProjectile(x, y) { // x, y are already scaled spawn positions
+             projectiles.push({ x: x - (PROJECTILE_WIDTH / 2) * scaleFactor, y: y, width: PROJECTILE_WIDTH * scaleFactor, height: PROJECTILE_HEIGHT * scaleFactor, vy: PROJECTILE_SPEED * scaleFactor });
+         }
+         function updateProjectiles() {
+             for (let i = projectiles.length - 1; i >= 0; i--) {
+                 const p = projectiles[i];
+                 p.y += p.vy; // vy is already scaled
+                 if (p.y > canvas.height) { // Check against current canvas height
+                     projectiles.splice(i, 1);
+                 }
+             }
+         }
+         function drawProjectiles() {
+             ctx.fillStyle = tailwind.config.theme.extend.colors.projectile;
+             projectiles.forEach(p => {
+                 ctx.fillRect(p.x, p.y, p.width, p.height); // Use scaled dimensions
+             });
+         }
+
+
+        // --- Collectible Handling ---
+        // Keep logical sizes, scale drawing
+         function spawnCollectible(x = canvas.width, yPos = null) {
+             if (isGameOver) return;
+             let y = yPos;
+             const logicalGroundY = BASE_CANVAS_HEIGHT - 25; // Use base for logic
+
+             if (y === null) {
+                 // Find platforms based on logical positions? This gets tricky.
+                 // Simplification: Use random heights based on logical ground.
+                 if (Math.random() < 0.4) { y = logicalGroundY - PLAYER_HEIGHT * 1.5 - (Math.random() * 50); }
+                 else { y = logicalGroundY - COLLECTIBLE_SIZE - 5 - (Math.random() * 10); }
+                 y = Math.max(10, Math.min(y, logicalGroundY - COLLECTIBLE_SIZE - 5));
+             }
+             // Store logical position and size
+             collectibles.push({ x: x / scaleFactor, y: y, width: COLLECTIBLE_SIZE, height: COLLECTIBLE_SIZE, value: COLLECTIBLE_VALUE, speed: currentObstacleSpeed, emoji: EMOJI_COLLECTIBLE });
+         }
+         function updateCollectibles() {
+             for (let i = collectibles.length - 1; i >= 0; i--) {
+                 const c = collectibles[i];
+                 const scaledSpeed = c.speed * scaleFactor; // Scale speed
+                 c.x -= scaledSpeed; // Update logical position
+                 if (c.x + c.width < 0) { // Check logical position
+                     collectibles.splice(i, 1);
+                 }
+             }
+         }
+         function drawCollectibles() {
+             const fs = COLLECTIBLE_SIZE * 1.2 * scaleFactor; // Scale font size
+             ctx.font = `${fs}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+             collectibles.forEach(c => {
+                 // Draw at scaled position
+                 const dX = (c.x + c.width / 2) * scaleFactor;
+                 const dY = (c.y + c.height / 2) * scaleFactor;
+                 ctx.fillText(c.emoji, dX, dY);
+             });
+         }
+
+        // --- Powerup Handling ---
+        // Keep logical sizes, scale drawing
+         function spawnPowerup(x = canvas.width + Math.random() * 100, yPos = null) {
+             if (isGameOver) return;
+             let y = yPos;
+             const logicalGroundY = BASE_CANVAS_HEIGHT - 25; // Use base for logic
+             if (y === null) {
+                 // Simplification: Use random heights based on logical ground.
+                  y = logicalGroundY - PLAYER_HEIGHT * 1.5 - (Math.random() * 50);
+                  y = Math.max(15, Math.min(y, logicalGroundY - POWERUP_SIZE - 10));
+             }
+             const type = Math.random() < 0.5 ? 'shield' : 'multiplier';
+             const emoji = type === 'shield' ? EMOJI_POWERUP_SHIELD : EMOJI_POWERUP_MULTIPLIER;
+             // Store logical position and size
+             powerups.push({ x: x / scaleFactor, y: y, width: POWERUP_SIZE, height: POWERUP_SIZE, speed: currentObstacleSpeed * 0.8, emoji: emoji, type: type });
+         }
+         function updatePowerups() {
+             for (let i = powerups.length - 1; i >= 0; i--) {
+                 const p = powerups[i];
+                 const scaledSpeed = p.speed * scaleFactor; // Scale speed
+                 p.x -= scaledSpeed; // Update logical position
+                 if (p.x + p.width < 0) { // Check logical position
+                     powerups.splice(i, 1);
+                 }
+             }
+         }
+         function drawPowerups() {
+             const fs = POWERUP_SIZE * 1.1 * scaleFactor; // Scale font size
+             ctx.font = `${fs}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+             powerups.forEach(p => {
+                 // Draw at scaled position
+                 const dX = (p.x + p.width / 2) * scaleFactor;
+                 const dY = (p.y + p.height / 2) * scaleFactor;
+                 ctx.fillText(p.emoji, dX, dY);
+             });
+         }
+
+
+        // --- Pattern Spawning ---
+        // Needs adjustment for scaled coordinates if called directly
+        // Simplification: Patterns might look different on different scales if not adjusted carefully.
+        function spawnWallJumpPattern() {
+            const startX = canvas.width; // Spawn relative to current canvas edge
+            const wallHeight = OBSTACLE_HEIGHT_TALL;
+            const gapWidth = PLAYER_WIDTH * 2.5;
+            const yPos = BASE_CANVAS_HEIGHT - 25 - wallHeight; // Use logical ground Y
+            spawnObstacle(startX + 50, 'tall', yPos); // Spawn with offset
+            spawnObstacle(startX + 50 + (OBSTACLE_WIDTH + gapWidth) * scaleFactor, 'tall', yPos); // Scale gap
+            spawnCollectible(startX + 50 + (OBSTACLE_WIDTH + gapWidth / 2) * scaleFactor, yPos - PLAYER_HEIGHT * 0.8); // Scale gap
+        }
+        function spawnPlatformHopPattern() {
+            const startX = canvas.width; // Spawn relative to current canvas edge
+            const platWidth = PLATFORM_MIN_WIDTH * 0.8;
+            const y1 = BASE_CANVAS_HEIGHT - 25 - PLAYER_HEIGHT * 1.2; // Logical Y
+            const y2 = BASE_CANVAS_HEIGHT - 25 - PLAYER_HEIGHT * 2.2; // Logical Y
+            const gap = PLAYER_WIDTH * 1.8 * scaleFactor; // Scale gap
+            spawnPlatform(startX + 30, y1, platWidth);
+            spawnPlatform(startX + 30 + platWidth * scaleFactor + gap, y2, platWidth); // Scale position
+            spawnCollectible(startX + 30 + (platWidth + gap + platWidth / 2) * scaleFactor, y2 - COLLECTIBLE_SIZE * 1.5); // Scale position
+        }
+
+        // --- Collision Detection ---
+        // Collision needs to happen in scaled coordinates
+         function isHorizontallyClose(item, buffer = COLLISION_X_BUFFER * scaleFactor) {
+             const itemX = item.x * scaleFactor; // Scale item position for check
+             const itemWidth = item.width * scaleFactor; // Scale item width for check
+             return itemX < player.x + player.width + buffer && itemX + itemWidth > player.x - buffer;
+         }
+         function checkCollision(rect1, rect2) { // rect1 is player (already scaled), rect2 needs scaling
+             const r2x = rect2.x * scaleFactor;
+             const r2y = rect2.y * scaleFactor;
+             const r2w = rect2.width * scaleFactor;
+             const r2h = rect2.height * scaleFactor;
+             return ( rect1.x < r2x + r2w && rect1.x + rect1.width > r2x && rect1.y < r2y + r2h && rect1.y + rect1.height > r2y );
+         }
+         // Projectile collision needs slightly different check as projectile coords are already scaled
+         function checkProjectileCollision(playerRect, projectileRect) {
+              return ( playerRect.x < projectileRect.x + projectileRect.width && playerRect.x + playerRect.width > projectileRect.x && playerRect.y < projectileRect.y + projectileRect.height && playerRect.y + playerRect.height > projectileRect.y );
+         }
+
+
+        // --- Keyboard Event Handlers (No changes needed) ---
+        function handleKeyDown(e) { if (isGameOver) return; keys[e.key] = true; if (['ArrowLeft', 'ArrowRight', 'ArrowUp', ' ', 'Spacebar', DASH_KEY].includes(e.key)) e.preventDefault(); if ((e.key === 'ArrowUp' || e.key === ' ' || e.key === 'Spacebar')) { if (player.jumpsRemaining > 0 && !player.isDashing) { player.dy = -player.jumpStrength; player.isOnGround = false; player.landedOnPlatform = null; player.jumpsRemaining--; const pColor = player.jumpsRemaining === 0 ? tailwind.config.theme.extend.colors['particle-double-jump'] : tailwind.config.theme.extend.colors['particle-jump']; spawnParticles(player.jumpsRemaining === 0 ? 10 : 5, player.x + player.width / 2, player.y + player.height, pColor, 2, [PARTICLE_MIN_LIFE, PARTICLE_MAX_LIFE], 1); if (jumpSynth && audioInitialized) { try { jumpSynth.frequency.setValueAtTime(player.jumpsRemaining === 0 ? "D5" : "C5", Tone.now()); jumpSynth.triggerAttackRelease("8n"); } catch(err){ console.error("Jump sound error:", err); } } } } else if (e.key === DASH_KEY) { if (player.dashCooldownTimer <= 0 && !player.isDashing) { player.isDashing = true; player.dashTimer = DASH_DURATION_FRAMES; player.dashCooldownTimer = DASH_COOLDOWN_FRAMES; const horizontalInput = (keys['ArrowRight'] ? 1 : 0) - (keys['ArrowLeft'] ? 1 : 0); player.dashDirection = horizontalInput !== 0 ? horizontalInput : 1; player.dy = player.dy * 0.5; spawnParticles(15, player.x + player.width / 2, player.y + player.height / 2, tailwind.config.theme.extend.colors['particle-dash'], 4, [PARTICLE_MIN_LIFE * 0.5, PARTICLE_MAX_LIFE * 0.8], 0, -player.dashDirection * 2); if (dashSynth && audioInitialized) { try { dashSynth.triggerAttackRelease("A4", "16n"); } catch(err){ console.error("Dash sound error:", err); } } } } }
+        function handleKeyUp(e) { keys[e.key] = false; }
+
+        // --- Player Update ---
+         function updatePlayerState() {
+             try {
+                 player.wasOnGround = player.isOnGround; let platformVx = 0;
+
+                 if (player.isInvincible) { player.invincibilityTimer--; if (player.invincibilityTimer <= 0) { player.isInvincible = false; } }
+                 if (player.scoreMultiplierTimer > 0) { player.scoreMultiplierTimer--; if (player.scoreMultiplierTimer <= 0) { player.scoreMultiplier = 1; scoreDisplay.classList.remove('multiplier-active'); } else { scoreDisplay.classList.add('multiplier-active'); } }
+                 if (player.dashCooldownTimer > 0) { player.dashCooldownTimer--; }
+
+                 if (player.isDashing) {
+                     player.dashTimer--;
+                     player.x += player.dashDirection * player.speed * DASH_SPEED_MULTIPLIER; // speed is already scaled
+                     if (player.dashTimer <= 0) { player.isDashing = false; }
+                     player.dx = 0;
+                 } else {
+                     player.dx = 0;
+                     if (keys['ArrowLeft']) player.dx = -player.speed; // speed is scaled
+                     if (keys['ArrowRight']) player.dx = player.speed; // speed is scaled
+                     player.x += player.dx;
+                 }
+
+                 // Platform interaction - use scaled platform speed
+                 if (player.landedOnPlatform?.type === 'moving-x') {
+                     platformVx = (player.landedOnPlatform.vx || 0) * scaleFactor; // Scale platform speed for interaction
+                     if (!player.isDashing) { player.x += platformVx; }
+                 }
+
+                 // Boundary checks
+                 if (player.x < 0) player.x = 0;
+                 if (player.x + player.width > canvas.width) player.x = canvas.width - player.width; // Use scaled player width
+
+                 // Vertical movement (gravity is scaled, dy is scaled)
+                 player.dy += player.gravity;
+                 let potentialY = player.y + player.dy;
+                 let landedOnSomething = false;
+                 let landingSurfaceY = GROUND_Y; // Use dynamic GROUND_Y
+                 let currentPlatform = null;
+
+                 // Collision check with platforms and ground (use scaled coords)
+                 if (player.dy >= 0 && !player.isDashing) {
+                     for (const platform of platforms) {
+                         const platX = platform.x * scaleFactor;
+                         const platY = platform.y * scaleFactor;
+                         const platW = platform.width * scaleFactor;
+                         // Horizontal check (already scaled player vs scaled platform)
+                         if (player.x + player.width > platX && player.x < platX + platW) {
+                            // Vertical check (predictive)
+                            if (player.y + player.height <= platY + 1 && potentialY + player.height >= platY) {
+                                 potentialY = platY - player.height; // Land on scaled platform Y
+                                 player.dy = 0;
+                                 landedOnSomething = true;
+                                 landingSurfaceY = platY;
+                                 currentPlatform = platform; // Store logical platform
+                                 break;
+                             }
+                         }
+                     }
+                     // Ground collision check
+                     if (!landedOnSomething && potentialY + player.height >= GROUND_Y) {
+                         potentialY = GROUND_Y - player.height;
+                         player.dy = 0;
+                         landedOnSomething = true;
+                         landingSurfaceY = GROUND_Y;
+                         currentPlatform = null;
+                     }
+                 }
+
+                 player.y = potentialY;
+                 player.isOnGround = landedOnSomething;
+                 player.landedOnPlatform = landedOnSomething ? currentPlatform : null; // Store logical platform
+
+                 if (player.isOnGround) {
+                     player.jumpsRemaining = MAX_JUMPS;
+                     if (!player.wasOnGround) {
+                         spawnParticles(4, player.x + player.width / 2, landingSurfaceY, tailwind.config.theme.extend.colors['particle-jump'], 1.5, [PARTICLE_MIN_LIFE, PARTICLE_MAX_LIFE * 0.8], -0.5);
+                     }
+                 }
+
+                 // Top boundary check
+                 if (player.y < 0) { player.y = 0; player.dy = 0; }
+
+                 // Lava collision check (use dynamic GROUND_Y)
+                 if (player.y + player.height > GROUND_Y + (LAVA_HEIGHT / 2 * scaleFactor) && !isGameOver) {
+                     handleGameOver();
+                 }
+             } catch (e) { console.error("Error in updatePlayerState:", e); handleGameOver(); }
+         }
+
+
+        // --- Drawing Functions ---
+        function clearCanvas() { ctx.clearRect(0, 0, canvas.width, canvas.height); }
+        function drawEnvironment() {
+            // Draw ground relative to dynamic GROUND_Y
+            ctx.fillStyle = tailwind.config.theme.extend.colors.ground;
+            ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
+            // Draw lava relative to dynamic GROUND_Y and scale its height
+            ctx.fillStyle = tailwind.config.theme.extend.colors.lava;
+            ctx.fillRect(0, GROUND_Y + (PLATFORM_HEIGHT / 2 * scaleFactor), canvas.width, canvas.height - (GROUND_Y + (PLATFORM_HEIGHT / 2 * scaleFactor)));
+        }
+         function drawPlayer() {
+             const isInvulnerable = player.isInvincible || (player.isDashing && DASH_INVINCIBILITY);
+             if (isInvulnerable) { const alpha = 0.6 + Math.sin(Date.now() / 150) * 0.2; ctx.globalAlpha = Math.max(0.4, alpha); }
+
+             if (player.image && !player.isPlaceholder && player.image.complete) {
+                 // Draw player using scaled dimensions
+                 ctx.drawImage(player.image, player.x, player.y, player.width, player.height);
+             } else {
+                 // Draw placeholder using scaled dimensions
+                 ctx.fillStyle = tailwind.config.theme.extend.colors['placeholder-bg'];
+                 ctx.fillRect(player.x, player.y, player.width, player.height);
+                 ctx.fillStyle = tailwind.config.theme.extend.colors['placeholder-text'];
+                 ctx.font = `${12 * scaleFactor}px Inter`; // Scale font
+                 ctx.textAlign = 'center';
+                 const placeholderName = selectedCharacter?.name?.split(' ')[0] || '?';
+                 ctx.fillText(placeholderName, player.x + player.width / 2, player.y + player.height / 2 + (5 * scaleFactor)); // Scale offset
+             }
+             ctx.globalAlpha = 
